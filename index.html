@@ -300,6 +300,7 @@
     display: flex;
     justify-content: flex-end;
     gap: 10px;
+    flex-wrap: wrap;
   }
 
   .analysis-card {
@@ -368,8 +369,18 @@
     border-bottom: 1px solid #eee;
     padding: 10px;
     font-size: 13px;
+    vertical-align: middle;
   }
   .attribute-table th { background: #fafafa; text-align: right; }
+
+  .attr-actions { display:flex; gap:6px; flex-wrap:wrap; }
+  .attr-inline {
+    display:flex;
+    gap:8px;
+    align-items:center;
+  }
+  .attr-inline .form-control { flex: 1; }
+  .muted { color:#6b7280; font-size:12px; }
 </style>
 </head>
 
@@ -614,7 +625,6 @@
         </div>
 
         <div class="form-group">
-          <!-- ✅ زر اختياري لمسح الحفظ التلقائي -->
           <button class="btn btn-danger btn-block" onclick="clearAutoSave()">
             <i class="fas fa-broom"></i> مسح الحفظ التلقائي
           </button>
@@ -724,16 +734,31 @@
 </div>
 
 <div id="attributeModal" class="modal-overlay" style="display: none;">
-  <div class="modal" style="max-width: 600px;">
+  <div class="modal" style="max-width: 700px;">
     <div class="modal-header">
       <div class="modal-title">خصائص العنصر</div>
       <button class="modal-close" onclick="closeModal('attributeModal')">&times;</button>
     </div>
     <div class="modal-body">
       <div id="attributeTable"></div>
+
+      <!-- ✅ تعديل الحقول + روابط -->
       <div id="attributeForm" style="display: none; margin-top: 20px;">
-        <h4 style="margin-bottom: 15px;">تعديل الخصائص</h4>
-        <div id="attributeFields"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+          <h4 style="margin:0;">تعديل الخصائص</h4>
+          <div class="attr-actions">
+            <button class="btn btn-secondary btn-sm" onclick="addAttributeFieldPrompt()">
+              <i class="fas fa-plus"></i> إضافة حقل
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="addLinkFieldPrompt()">
+              <i class="fas fa-link"></i> إضافة رابط
+            </button>
+          </div>
+        </div>
+        <div class="muted" style="margin-top:8px;">
+          ملاحظة: الحذف/تغيير اسم الحقل متاح للمحرر والمسؤول.
+        </div>
+        <div id="attributeFields" style="margin-top:12px;"></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -773,7 +798,6 @@
           <input type="color" id="strokeColor" class="form-control" value="#0033cc">
         </div>
 
-        <!-- ✅ مهم: خليت السمك يبدأ من 0 حتى تختفي الحدود فعلاً -->
         <div class="form-group">
           <label class="form-label">سمك الحدود</label>
           <input type="range" id="strokeWidth" class="form-range" min="0" max="10" value="2">
@@ -866,6 +890,7 @@
 
 <div id="toast-container" style="position: fixed; top: 80px; right: 20px; z-index: 11000;"></div>
 
+<!-- ✅ الجزء الثاني يبدأ من هنا -->
 <script>
 // ============================================================================
 // CONFIG + AUTOSAVE
@@ -875,24 +900,19 @@ const APP_CONFIG = {
   name: 'Advanced Web GIS Pro',
   version: '2.0.0',
   author: 'GIS Team',
-
-  // ✅ الجادرية (تقريباً)
   defaultView: [33.2833, 44.3667],
   defaultZoom: 14,
-
   maxZoom: 21,
   minZoom: 12
 };
 
 const AUTOSAVE_KEY = 'gis_autosave_v2';
 
-// ✅ حدود الجادرية (منع الخروج خارجها)
 const JADRIYAH_BOUNDS = L.latLngBounds(
-  L.latLng(33.2500, 44.3300), // SW
-  L.latLng(33.3200, 44.4200)  // NE
+  L.latLng(33.2500, 44.3300),
+  L.latLng(33.3200, 44.4200)
 );
 
-// State management
 let state = {
   map: null,
   cesiumViewer: null,
@@ -904,11 +924,7 @@ let state = {
   selectedLayerId: null,
   selectedFeature: null,
 
-  // ✅ نخزن آخر عنصر تم تمييزه حتى نرجعه لطبيعته (لإزالة الخط الأحمر)
-  highlighted: {
-    layerId: null,
-    leafletLayer: null
-  },
+  highlighted: { layerId: null, leafletLayer: null },
 
   currentRole: localStorage.getItem('gis_role') || 'viewer',
   userPreferences: JSON.parse(localStorage.getItem('gis_preferences')) || {},
@@ -922,7 +938,6 @@ let state = {
   measurementControl: null
 };
 
-// Debounce helper
 function debounce(fn, wait=600){
   let t=null;
   return (...args)=>{
@@ -931,12 +946,10 @@ function debounce(fn, wait=600){
   };
 }
 
-// ✅ حفظ تلقائي: يحفظ كل شيء
 const autoSave = debounce(() => {
   try {
     const payload = buildAutoSavePayload();
     localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(payload));
-    // showToast('تم الحفظ التلقائي', 'info'); // إذا تريد اشعارات الحفظ فعّلها
   } catch (e) {
     console.error('AutoSave error:', e);
   }
@@ -955,7 +968,6 @@ function buildAutoSavePayload() {
       };
     }
     if (l.type === 'wms') {
-      // نخزن إعدادات WMS لإرجاعها
       return {
         type: 'wms',
         name: l.name,
@@ -990,27 +1002,19 @@ function loadAutoSaveIfExists() {
     const data = JSON.parse(raw);
     if (!data || !data.mapState) return false;
 
-    // Role
     if (data.role) {
       state.currentRole = data.role;
       localStorage.setItem('gis_role', data.role);
     }
 
-    // Basemap
-    if (data.basemap && BASEMAPS[data.basemap]) {
-      state.currentBasemap = data.basemap;
-    }
-    if (typeof data.basemapOpacity === 'number') {
-      state.basemapOpacity = data.basemapOpacity;
-    }
+    if (data.basemap && BASEMAPS[data.basemap]) state.currentBasemap = data.basemap;
+    if (typeof data.basemapOpacity === 'number') state.basemapOpacity = data.basemapOpacity;
 
-    // Map view (ضمن حدود الجادرية)
     if (data.mapState?.center && typeof data.mapState.zoom === 'number') {
       const c = data.mapState.center;
       state.map.setView([c.lat, c.lng], data.mapState.zoom, { animate: false });
     }
 
-    // Layers
     if (Array.isArray(data.layers)) {
       data.layers.forEach(item => {
         if (item.type === 'geojson' && item.geojson) {
@@ -1033,20 +1037,16 @@ function loadAutoSaveIfExists() {
       });
     }
 
-    // Drawings
     if (data.drawnItems) {
       try {
         L.geoJSON(data.drawnItems, {
-          onEachFeature: (feature, layer) => {
-            state.drawnItems.addLayer(layer);
-          }
+          onEachFeature: (feature, layer) => state.drawnItems.addLayer(layer)
         });
       } catch(e) {
         console.warn('Could not restore drawings:', e);
       }
     }
 
-    // UI updates
     updateRoleUI();
     changeBasemap(state.currentBasemap);
     document.getElementById('basemapOpacity').value = String(state.basemapOpacity);
@@ -1117,12 +1117,10 @@ const BASEMAPS = {
 
 function init() {
   console.log(`${APP_CONFIG.name} v${APP_CONFIG.version} initializing...`);
-
   initMap();
   initUI();
   initEvents();
 
-  // ✅ استرجاع الحفظ التلقائي إن وجد، وإلا نزّل إعدادات بسيطة
   const restored = loadAutoSaveIfExists();
   if (!restored) {
     loadAppState();
@@ -1139,8 +1137,6 @@ function initMap() {
     zoom: APP_CONFIG.defaultZoom,
     zoomControl: false,
     attributionControl: false,
-
-    // ✅ تثبيت على الجادرية
     maxBounds: JADRIYAH_BOUNDS,
     maxBoundsViscosity: 1.0,
     minZoom: APP_CONFIG.minZoom,
@@ -1169,16 +1165,11 @@ function initUI() {
 }
 
 function initEvents() {
-  state.map.on('click', (e) => {
-    // ✅ ضغط على الخريطة = إزالة التحديد الأحمر
-    clearHighlight();
-    onMapClick(e);
-  });
+  state.map.on('click', (e) => { clearHighlight(); onMapClick(e); });
 
   state.map.on('layeradd', onLayerChange);
   state.map.on('layerremove', onLayerChange);
 
-  // ✅ أحداث الرسم للحفظ التلقائي
   state.map.on(L.Draw.Event.CREATED, () => autoSave());
   state.map.on(L.Draw.Event.EDITED, () => autoSave());
   state.map.on(L.Draw.Event.DELETED, () => autoSave());
@@ -1228,9 +1219,7 @@ class LayerManager {
 
     this.layers.push(layer);
 
-    if (layer.visible) {
-      leafletLayer.addTo(state.map);
-    }
+    if (layer.visible) leafletLayer.addTo(state.map);
 
     state.selectedLayerId = layerId;
 
@@ -1238,9 +1227,7 @@ class LayerManager {
     updateStatistics();
     updateLegend();
 
-    if (this.layers.length === 1 && layer.properties.bounds) {
-      state.map.fitBounds(layer.properties.bounds);
-    }
+    if (this.layers.length === 1 && layer.properties.bounds) state.map.fitBounds(layer.properties.bounds);
 
     if (!options.silent) autoSave();
     return layerId;
@@ -1258,7 +1245,7 @@ class LayerManager {
           fillOpacity: 0.8
         });
       },
-      style: (feature) => {
+      style: () => {
         return {
           color: '#0033cc',
           weight: 2,
@@ -1281,7 +1268,6 @@ class LayerManager {
         });
 
         layer.on('mouseout', () => {
-          // نرجع للستايل الافتراضي للطبقة (بدون ما نخرب الـ highlight)
           const lay = this.getLayer(layerId);
           if (!lay) return;
           if (state.highlighted.leafletLayer === layer) return;
@@ -1313,9 +1299,10 @@ class LayerManager {
 
     for (const [key, value] of Object.entries(properties)) {
       if (value !== null && value !== undefined) {
+        const isLink = (typeof value === 'string') && (value.startsWith('http://') || value.startsWith('https://'));
         content += `<div class="property-row">
           <span class="property-key">${key}:</span>
-          <span class="property-value">${value}</span>
+          <span class="property-value">${isLink ? `<a href="${value}" target="_blank" rel="noopener noreferrer">${value}</a>` : value}</span>
         </div>`;
       }
     }
@@ -1328,13 +1315,9 @@ class LayerManager {
     state.selectedLayerId = layerId;
     state.selectedFeature = { feature, layer };
 
-    // ✅ قبل ما نعمل Highlight جديد: نمسح القديم
     clearHighlight();
 
-    // ✅ Highlight أحمر مؤقت
-    if (layer.setStyle) {
-      layer.setStyle({ color: '#ff0000', weight: 3, opacity: 1 });
-    }
+    if (layer.setStyle) layer.setStyle({ color: '#ff0000', weight: 3, opacity: 1 });
     state.highlighted.layerId = layerId;
     state.highlighted.leafletLayer = layer;
 
@@ -1369,12 +1352,8 @@ class LayerManager {
     const layer = this.layers.find(l => l.id === layerId);
     if (layer) {
       layer.visible = !layer.visible;
-
-      if (layer.visible) {
-        layer.leafletLayer.addTo(state.map);
-      } else {
-        state.map.removeLayer(layer.leafletLayer);
-      }
+      if (layer.visible) layer.leafletLayer.addTo(state.map);
+      else state.map.removeLayer(layer.leafletLayer);
 
       this.updateLayerList();
       updateLegend();
@@ -1390,23 +1369,17 @@ class LayerManager {
       const strokeW = Number(layer.style.strokeWidth ?? 2);
       const strokeOn = strokeW > 0;
 
-      // ✅ مهم: إذا strokeWidth = 0 نخفي الحدود فعلاً
       layer.leafletLayer.setStyle({
         stroke: strokeOn,
         color: layer.style.strokeColor,
         weight: strokeW,
         opacity: strokeOn ? 1 : 0,
-
         fillColor: layer.style.fillColor,
         fillOpacity: Number(layer.style.fillOpacity ?? 0.5)
       });
 
-      // Points (circleMarker)
       layer.leafletLayer.eachLayer((featureLayer) => {
-        if (featureLayer.setRadius && layer.style.pointSize) {
-          featureLayer.setRadius(Number(layer.style.pointSize));
-        }
-        // ✅ اخفاء حدود النقاط عند 0
+        if (featureLayer.setRadius && layer.style.pointSize) featureLayer.setRadius(Number(layer.style.pointSize));
         if (featureLayer.setStyle) {
           featureLayer.setStyle({
             stroke: strokeOn,
@@ -1418,7 +1391,6 @@ class LayerManager {
 
       updateLegend();
       showToast('تم تحديث تنسيق الطبقة', 'success');
-
       if (!options.silent) autoSave();
     }
   }
@@ -1472,13 +1444,7 @@ class LayerManager {
   }
 
   getDefaultStyle() {
-    return {
-      fillColor: '#3388ff',
-      strokeColor: '#0033cc',
-      strokeWidth: 2,
-      fillOpacity: 0.5,
-      pointSize: 8
-    };
+    return { fillColor: '#3388ff', strokeColor: '#0033cc', strokeWidth: 2, fillOpacity: 0.5, pointSize: 8 };
   }
 
   getLayer(layerId) { return this.layers.find(l => l.id === layerId); }
@@ -1495,24 +1461,10 @@ class LayerManager {
     updateLegend();
     autoSave();
   }
-
-  exportAsGeoJSON(layerId) {
-    const layer = this.getLayer(layerId);
-    if (layer && layer.geojson) {
-      const dataStr = JSON.stringify(layer.geojson, null, 2);
-      const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-      const exportFileDefaultName = `${layer.name}.geojson`;
-      const linkElement = document.createElement('a');
-      linkElement.setAttribute('href', dataUri);
-      linkElement.setAttribute('download', exportFileDefaultName);
-      linkElement.click();
-    }
-  }
 }
 
 const layerManager = new LayerManager();
 
-// ✅ إزالة التحديد الأحمر نهائياً
 function clearHighlight() {
   try {
     const hl = state.highlighted.leafletLayer;
@@ -1646,8 +1598,9 @@ function addGeoJSONLayer() {
     showToast('بيانات GeoJSON غير صالحة', 'error');
   }
 }
+
 // ============================================================================
-// STYLING AND SYMBOLOGY
+// STYLING
 // ============================================================================
 
 function editLayerStyle(layerId) {
@@ -1699,7 +1652,7 @@ function applyLayerStyle() {
   const layer = layerManager.getLayer(state.selectedLayerId);
   if (!layer) return;
 
-  const activeTab = document.querySelector('#layerStyleModal .tab.active').textContent;
+  const activeTab = document.querySelector('#layerStyleModal .tab.active').textContent.trim();
   let style = {};
 
   if (activeTab === 'بسيط') {
@@ -1725,17 +1678,41 @@ function applyLayerStyle() {
 }
 
 // ============================================================================
-// FEATURE ATTRIBUTES
+// ✅ FEATURE ATTRIBUTES (معدّل بالكامل: روابط + إضافة/حذف/تغيير اسم الحقول)
 // ============================================================================
+
+function canEditAttributes(){
+  return (state.currentRole === 'editor' || state.currentRole === 'admin');
+}
+function isUrlValue(v){
+  return (typeof v === 'string') && (v.startsWith('http://') || v.startsWith('https://'));
+}
+function safeHtml(s){
+  return String(s ?? '').replace(/[&<>"']/g, (m)=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+}
+function encKey(k){ return encodeURIComponent(k); }
+function decKey(k){ return decodeURIComponent(k); }
 
 function showFeatureAttributes(feature, layerId) {
   const properties = feature.properties || {};
+  const editable = canEditAttributes();
 
   let tableHTML = `
     <div class="attribute-info">
-      <div class="attribute-header" style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
-        <h4 style="margin:0;"><i class="fas fa-info-circle"></i> معلومات العنصر</h4>
-        <div class="attribute-type">${getGeometryType(feature.geometry.type)}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div>
+          <h4 style="margin:0;"><i class="fas fa-info-circle"></i> معلومات العنصر</h4>
+          <div class="muted" style="margin-top:6px;">
+            الطبقة: ${safeHtml(layerManager.getLayer(layerId)?.name || 'غير معروف')} | الحقول: ${Object.keys(properties).length}
+          </div>
+        </div>
+        ${editable ? `
+          <div class="attr-actions">
+            <button class="btn btn-secondary btn-sm" onclick="quickAddUrlIfMissing()">
+              <i class="fas fa-link"></i> إضافة حقل URL
+            </button>
+          </div>
+        ` : ``}
       </div>
 
       <table class="attribute-table" style="margin-top:12px;">
@@ -1743,20 +1720,31 @@ function showFeatureAttributes(feature, layerId) {
           <tr>
             <th>اسم الحقل</th>
             <th>القيمة</th>
-            <th>النوع</th>
+            <th>إجراء</th>
           </tr>
         </thead>
         <tbody>
   `;
 
   Object.entries(properties).forEach(([key, value]) => {
-    const type = typeof value;
-    const typeIcon = getTypeIcon(type, value);
+    const isLink = isUrlValue(value);
     tableHTML += `
       <tr>
-        <td><strong>${key}</strong></td>
-        <td>${formatValue(value)}</td>
-        <td>${typeIcon}</td>
+        <td><strong>${safeHtml(key)}</strong></td>
+        <td>
+          ${isLink
+            ? `<a href="${safeHtml(value)}" target="_blank" rel="noopener noreferrer">
+                 <i class="fas fa-external-link-alt"></i> ${safeHtml(value)}
+               </a>`
+            : `${safeHtml(value)}`
+          }
+        </td>
+        <td>
+          <div class="attr-actions">
+            ${isLink ? `<button class="btn btn-secondary btn-sm" onclick="openLinkValue('${encKey(key)}')"><i class="fas fa-arrow-up-right-from-square"></i> فتح</button>` : ``}
+            ${editable ? `<button class="btn btn-primary btn-sm" onclick="toggleAttributeEdit()"><i class="fas fa-pen"></i> تعديل</button>` : `<span class="muted">عرض فقط</span>`}
+          </div>
+        </td>
       </tr>
     `;
   });
@@ -1764,22 +1752,43 @@ function showFeatureAttributes(feature, layerId) {
   tableHTML += `
         </tbody>
       </table>
-
-      <div class="attribute-summary" style="margin-top:12px;">
-        <div class="summary-item">
-          <i class="fas fa-layer-group"></i>
-          <span>الطبقة: ${layerManager.getLayer(layerId)?.name || 'غير معروف'}</span>
-        </div>
-        <div class="summary-item">
-          <i class="fas fa-database"></i>
-          <span>الحقول: ${Object.keys(properties).length}</span>
-        </div>
-      </div>
     </div>
   `;
 
   document.getElementById('attributeTable').innerHTML = tableHTML;
   showModal('attributeModal');
+}
+
+function openLinkValue(encodedKey){
+  const key = decKey(encodedKey);
+  const feature = state.selectedFeature?.feature;
+  if(!feature) return;
+  const v = feature.properties?.[key];
+  if(isUrlValue(v)) window.open(v, '_blank', 'noopener,noreferrer');
+}
+
+function quickAddUrlIfMissing(){
+  if(!canEditAttributes()){
+    showToast('لا تمتلك صلاحية التعديل', 'error');
+    return;
+  }
+  const feature = state.selectedFeature?.feature;
+  if(!feature) return;
+
+  const candidates = ['url', 'URL', 'link', 'الرابط', 'رابط'];
+  const has = candidates.some(k => feature.properties && Object.prototype.hasOwnProperty.call(feature.properties, k));
+  if(has){
+    showToast('حقل الرابط موجود مسبقاً', 'info');
+    toggleAttributeEdit();
+    return;
+  }
+
+  feature.properties = feature.properties || {};
+  feature.properties['url'] = 'https://';
+  showToast('تمت إضافة حقل url، عدّل الرابط ثم احفظ', 'success');
+  toggleAttributeEdit();
+  populateAttributeForm();
+  autoSave();
 }
 
 function toggleAttributeEdit() {
@@ -1789,7 +1798,7 @@ function toggleAttributeEdit() {
   const table = document.getElementById('attributeTable');
 
   if (form.style.display === 'none') {
-    if (state.currentRole !== 'editor' && state.currentRole !== 'admin') {
+    if (!canEditAttributes()) {
       showToast('لا تمتلك صلاحية التعديل', 'error');
       return;
     }
@@ -1805,34 +1814,154 @@ function toggleAttributeEdit() {
     form.style.display = 'none';
     editBtn.style.display = 'inline-block';
     saveBtn.style.display = 'none';
+
+    // إعادة عرض الجدول بعد إلغاء وضع التعديل
+    const f = state.selectedFeature?.feature;
+    if (f) showFeatureAttributes(f, state.selectedLayerId);
   }
+}
+
+function addAttributeFieldPrompt(){
+  if(!canEditAttributes()){
+    showToast('لا تمتلك صلاحية التعديل', 'error');
+    return;
+  }
+  const feature = state.selectedFeature?.feature;
+  if(!feature) return;
+
+  const name = (prompt('اسم الحقل الجديد؟ مثال: owner / name / notes') || '').trim();
+  if(!name) return;
+
+  if(feature.properties && Object.prototype.hasOwnProperty.call(feature.properties, name)){
+    if(!confirm('الحقل موجود. هل تريد استبدال قيمته؟')) return;
+  }
+  const value = prompt('قيمة الحقل؟', '') ?? '';
+  feature.properties = feature.properties || {};
+  feature.properties[name] = value;
+
+  populateAttributeForm();
+  autoSave();
+  showToast('تمت إضافة الحقل', 'success');
+}
+
+function addLinkFieldPrompt(){
+  if(!canEditAttributes()){
+    showToast('لا تمتلك صلاحية التعديل', 'error');
+    return;
+  }
+  const feature = state.selectedFeature?.feature;
+  if(!feature) return;
+
+  const name = (prompt('اسم حقل الرابط؟ (افتراضي: url)', 'url') || 'url').trim() || 'url';
+  const value = (prompt('أدخل الرابط (مثال: https://...)', 'https://') || '').trim();
+  if(!value) return;
+
+  feature.properties = feature.properties || {};
+  feature.properties[name] = value;
+
+  populateAttributeForm();
+  autoSave();
+  showToast('تمت إضافة الرابط', 'success');
 }
 
 function populateAttributeForm() {
   const feature = state.selectedFeature?.feature;
-  if (!feature || !feature.properties) return;
+  if (!feature) return;
+
+  feature.properties = feature.properties || {};
 
   const fieldsDiv = document.getElementById('attributeFields');
   fieldsDiv.innerHTML = '';
 
-  Object.entries(feature.properties).forEach(([key, value]) => {
-    const fieldHTML = `
-      <div class="form-group">
-        <label class="form-label">${key}</label>
-        <input type="text" class="form-control"
-               data-field="${key}"
-               value="${(value ?? '')}">
+  const entries = Object.entries(feature.properties);
+
+  if(entries.length === 0){
+    fieldsDiv.innerHTML = `<div class="muted">لا توجد حقول. استخدم "إضافة حقل" أو "إضافة رابط".</div>`;
+    return;
+  }
+
+  entries.forEach(([key, value]) => {
+    const isLink = isUrlValue(value) || String(key).toLowerCase().includes('url') || String(key).toLowerCase().includes('link');
+    const inputType = isLink ? 'url' : 'text';
+
+    const row = document.createElement('div');
+    row.className = 'form-group';
+    row.dataset.fieldRow = key;
+
+    row.innerHTML = `
+      <label class="form-label">${safeHtml(key)}</label>
+      <div class="attr-inline">
+        <input type="${inputType}" class="form-control" data-field="${safeHtml(key)}" value="${safeHtml(value)}" placeholder="${isLink ? 'https://...' : ''}">
+        ${isLink ? `<button class="btn btn-secondary btn-sm" type="button" onclick="openFieldLink('${encKey(key)}')"><i class="fas fa-arrow-up-right-from-square"></i> فتح</button>` : ``}
+        <button class="btn btn-secondary btn-sm" type="button" onclick="renameAttributeField('${encKey(key)}')"><i class="fas fa-i-cursor"></i> تغيير الاسم</button>
+        <button class="btn btn-danger btn-sm" type="button" onclick="deleteAttributeField('${encKey(key)}')"><i class="fas fa-trash"></i> حذف</button>
       </div>
     `;
-    fieldsDiv.innerHTML += fieldHTML;
+
+    fieldsDiv.appendChild(row);
   });
 }
 
+function openFieldLink(encodedKey){
+  const key = decKey(encodedKey);
+  const feature = state.selectedFeature?.feature;
+  if(!feature) return;
+  const v = feature.properties?.[key];
+  if(isUrlValue(v)) window.open(v, '_blank', 'noopener,noreferrer');
+  else showToast('هذا الحقل ليس رابطاً صالحاً', 'warning');
+}
+
+function renameAttributeField(encodedKey){
+  if(!canEditAttributes()){
+    showToast('لا تمتلك صلاحية التعديل', 'error');
+    return;
+  }
+  const oldKey = decKey(encodedKey);
+  const feature = state.selectedFeature?.feature;
+  if(!feature) return;
+
+  const newKey = (prompt(`تغيير اسم الحقل: ${oldKey}\nاكتب الاسم الجديد:`, oldKey) || '').trim();
+  if(!newKey || newKey === oldKey) return;
+
+  feature.properties = feature.properties || {};
+  if(Object.prototype.hasOwnProperty.call(feature.properties, newKey)){
+    if(!confirm('اسم الحقل الجديد موجود. هل تريد الدمج/الاستبدال؟')) return;
+  }
+
+  feature.properties[newKey] = feature.properties[oldKey];
+  delete feature.properties[oldKey];
+
+  populateAttributeForm();
+  autoSave();
+  showToast('تم تغيير اسم الحقل', 'success');
+}
+
+function deleteAttributeField(encodedKey){
+  if(!canEditAttributes()){
+    showToast('لا تمتلك صلاحية التعديل', 'error');
+    return;
+  }
+  const key = decKey(encodedKey);
+  const feature = state.selectedFeature?.feature;
+  if(!feature) return;
+
+  if(!confirm(`هل تريد حذف الحقل "${key}"؟`)) return;
+  delete feature.properties[key];
+
+  populateAttributeForm();
+  autoSave();
+  showToast('تم حذف الحقل', 'success');
+}
+
 function saveAttributes() {
+  if (!canEditAttributes()) { showToast('لا تمتلك صلاحية التعديل', 'error'); return; }
   if (!state.selectedFeature) return;
 
+  const feature = state.selectedFeature.feature;
+  feature.properties = feature.properties || {};
+
   const inputs = document.querySelectorAll('#attributeFields input');
-  const updatedProperties = {};
+  const updatedProperties = { ...feature.properties };
 
   inputs.forEach(input => {
     const field = input.dataset.field;
@@ -1840,63 +1969,27 @@ function saveAttributes() {
     updatedProperties[field] = value;
   });
 
-  state.selectedFeature.feature.properties = updatedProperties;
+  feature.properties = updatedProperties;
 
   if (state.selectedFeature.layer) {
-    const popupContent = layerManager.createPopupContent(state.selectedFeature.feature);
+    const popupContent = layerManager.createPopupContent(feature);
     state.selectedFeature.layer.bindPopup(popupContent);
   }
 
   showToast('تم حفظ التغييرات', 'success');
-  toggleAttributeEdit();
   autoSave();
-}
 
-function formatValue(value) {
-  if (value === null || value === undefined) return '<em>فارغ</em>';
+  // رجوع لعرض الجدول
+  document.getElementById('attributeForm').style.display = 'none';
+  document.getElementById('attributeTable').style.display = 'block';
+  document.getElementById('editAttributeBtn').style.display = 'inline-block';
+  document.getElementById('saveAttributeBtn').style.display = 'none';
 
-  if (typeof value === 'string') {
-    if (value.startsWith('http://') || value.startsWith('https://')) {
-      return `<a href="${value}" target="_blank" rel="noopener noreferrer">
-                <i class="fas fa-external-link-alt"></i> رابط
-              </a>`;
-    }
-    return value;
-  }
-
-  if (typeof value === 'number') return value.toLocaleString();
-  if (typeof value === 'boolean') return value ? 'نعم' : 'لا';
-  if (Array.isArray(value)) return `[${value.length} عنصر]`;
-  if (typeof value === 'object') return '[كائن]';
-  return String(value);
-}
-
-function getGeometryType(type) {
-  const types = {
-    'Point': '<i class="fas fa-map-marker-alt"></i> نقطة',
-    'LineString': '<i class="fas fa-road"></i> خط',
-    'Polygon': '<i class="fas fa-shapes"></i> مضلع',
-    'MultiPoint': '<i class="fas fa-map-marker-alt"></i> نقاط متعددة',
-    'MultiLineString': '<i class="fas fa-road"></i> خطوط متعددة',
-    'MultiPolygon': '<i class="fas fa-shapes"></i> مضلعات متعددة'
-  };
-  return types[type] || type;
-}
-
-function getTypeIcon(type, value) {
-  if (typeof value === 'string' && (value.startsWith('http://') || value.startsWith('https://'))) {
-    return '<i class="fas fa-link" title="رابط"></i>';
-  }
-  switch (type) {
-    case 'string': return '<i class="fas fa-font" title="نص"></i>';
-    case 'number': return '<i class="fas fa-hashtag" title="رقم"></i>';
-    case 'boolean': return '<i class="fas fa-toggle-on" title="منطقي"></i>';
-    default: return '<i class="fas fa-question" title="آخر"></i>';
-  }
+  showFeatureAttributes(feature, state.selectedLayerId);
 }
 
 // ============================================================================
-// ANALYSIS TOOLS (كما هي مع حفظ تلقائي عند اللزوم)
+// ANALYSIS TOOLS
 // ============================================================================
 
 function measureDistance() {
@@ -2134,7 +2227,7 @@ function clearDrawings() {
 }
 
 // ============================================================================
-// PROJECT MANAGEMENT (يبقى كما هو، لكن الحفظ التلقائي يغطي الكل)
+// PROJECT MANAGEMENT
 // ============================================================================
 
 function saveProject() {
@@ -2406,41 +2499,23 @@ function switchTab(tabName) {
   document.getElementById(`${tabName}Tab`).style.display = 'block';
 }
 
-function toggleSidebar() {
-  document.getElementById('sidebar').classList.toggle('open');
-}
+function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
 
-function showModal(modalId) {
-  document.getElementById(modalId).style.display = 'flex';
-}
+function showModal(modalId) { document.getElementById(modalId).style.display = 'flex'; }
 
 function closeModal(modalId) {
   document.getElementById(modalId).style.display = 'none';
-
-  // ✅ عند إغلاق جدول الخصائص: نزيل الخط الأحمر
-  if (modalId === 'attributeModal') {
-    clearHighlight();
-  }
+  if (modalId === 'attributeModal') clearHighlight();
 }
 
 function showToast(message, type = 'info') {
-  const colors = {
-    success: '#10b981',
-    error: '#ef4444',
-    warning: '#f59e0b',
-    info: '#3b82f6'
-  };
-
+  const colors = { success: '#10b981', error: '#ef4444', warning: '#f59e0b', info: '#3b82f6' };
   Toastify({
     text: message,
     duration: 3000,
     gravity: "top",
     position: "right",
-    style: {
-      background: colors[type] || colors.info,
-      borderRadius: '8px',
-      fontFamily: 'inherit'
-    }
+    style: { background: colors[type] || colors.info, borderRadius: '8px', fontFamily: 'inherit' }
   }).showToast();
 }
 
@@ -2453,7 +2528,6 @@ function updateCoordinates(e) {
 function updateScale() {
   const zoom = state.map.getZoom();
   const scale = Math.round(591657550.5 / Math.pow(2, zoom));
-
   document.getElementById('zoomLevel').textContent = `التكبير: ${zoom}`;
   document.getElementById('scale').textContent = `مقياس: 1:${scale.toLocaleString()}`;
 }
@@ -2482,10 +2556,7 @@ function changeBasemapOpacity(opacity) {
 }
 
 function locateMe() {
-  if (!navigator.geolocation) {
-    showToast('المتصفح لا يدعم تحديد الموقع', 'error');
-    return;
-  }
+  if (!navigator.geolocation) { showToast('المتصفح لا يدعم تحديد الموقع', 'error'); return; }
 
   showToast('جاري تحديد موقعك...', 'info');
 
@@ -2493,7 +2564,6 @@ function locateMe() {
     (position) => {
       const latlng = [position.coords.latitude, position.coords.longitude];
 
-      // ✅ إذا كان الموقع خارج الجادرية، نخليه يرجع للحدود بدل ما يكسر التثبيت
       if (!JADRIYAH_BOUNDS.contains(latlng)) {
         showToast('موقعك خارج حدود الجادرية، سيتم إبقاء الخريطة داخل النطاق.', 'warning');
         state.map.fitBounds(JADRIYAH_BOUNDS);
@@ -2521,11 +2591,7 @@ function locateMe() {
   );
 }
 
-function fitToBounds() {
-  // ✅ رجوع للجادرية دائماً
-  state.map.fitBounds(JADRIYAH_BOUNDS);
-  autoSave();
-}
+function fitToBounds() { state.map.fitBounds(JADRIYAH_BOUNDS); autoSave(); }
 
 function printMap() { window.print(); }
 
@@ -2544,34 +2610,17 @@ function shareMap() {
 function updateStatistics() {
   const layers = layerManager.getAllLayers();
   let totalFeatures = 0;
-
-  layers.forEach(layer => {
-    if (layer.type === 'geojson' && layer.geojson) totalFeatures += layer.geojson.features.length || 0;
-  });
-
+  layers.forEach(layer => { if (layer.type === 'geojson' && layer.geojson) totalFeatures += layer.geojson.features.length || 0; });
   document.getElementById('totalFeatures').textContent = totalFeatures.toLocaleString();
   updateStatisticsChart();
 }
 
 function initStatisticsChart() {
   const ctx = document.getElementById('statisticsChart').getContext('2d');
-
   window.statisticsChart = new Chart(ctx, {
     type: 'bar',
-    data: {
-      labels: ['نقاط', 'خطوط', 'مضلعات'],
-      datasets: [{
-        label: 'عدد العناصر',
-        data: [0, 0, 0],
-        borderWidth: 1
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true } }
-    }
+    data: { labels: ['نقاط', 'خطوط', 'مضلعات'], datasets: [{ label: 'عدد العناصر', data: [0, 0, 0], borderWidth: 1 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
   });
 }
 
@@ -2602,12 +2651,7 @@ function updateStatisticsChart() {
 
 function updateLegend() {
   const layers = layerManager.getAllLayers().filter(l => l.visible);
-
-  if (layers.length === 0) {
-    document.getElementById('legend').style.display = 'none';
-    return;
-  }
-
+  if (layers.length === 0) { document.getElementById('legend').style.display = 'none'; return; }
   document.getElementById('legend').style.display = 'block';
 
   let legendHTML = '';
@@ -2626,12 +2670,7 @@ function updateLegend() {
 function exportLogs() {
   const logs = {
     app: APP_CONFIG,
-    state: {
-      role: state.currentRole,
-      layers: layerManager.getAllLayers().length,
-      basemap: state.currentBasemap,
-      is3D: state.is3D
-    },
+    state: { role: state.currentRole, layers: layerManager.getAllLayers().length, basemap: state.currentBasemap, is3D: state.is3D },
     exportTime: new Date().toISOString()
   };
 
@@ -2672,15 +2711,9 @@ function saveAppState() {
 // EVENT HANDLERS
 // ============================================================================
 
-function onMapClick(e) {
-  console.log('Map clicked at:', e.latlng);
-}
+function onMapClick(e) { console.log('Map clicked at:', e.latlng); }
 
-function onLayerChange() {
-  updateStatistics();
-  updateLegend();
-  autoSave();
-}
+function onLayerChange() { updateStatistics(); updateLegend(); autoSave(); }
 
 function onKeyDown(e) {
   switch(e.key) {
@@ -2704,20 +2737,14 @@ function onKeyDown(e) {
   }
 }
 
-function onWindowResize() {
-  if (state.map) state.map.invalidateSize();
-}
+function onWindowResize() { if (state.map) state.map.invalidateSize(); }
 
 function handleDragStart(e) {
   e.dataTransfer.setData('text/plain', e.target.dataset.layerId);
   e.target.style.opacity = '0.5';
 }
 function handleDragOver(e) { e.preventDefault(); }
-function handleDrop(e) {
-  e.preventDefault();
-  showToast('تم تحديث ترتيب الطبقات', 'success');
-  autoSave();
-}
+function handleDrop(e) { e.preventDefault(); showToast('تم تحديث ترتيب الطبقات', 'success'); autoSave(); }
 function handleDragEnd(e) { e.target.style.opacity = '1'; }
 
 // ============================================================================
@@ -2727,6 +2754,7 @@ function handleDragEnd(e) { e.target.style.opacity = '1'; }
 document.addEventListener('DOMContentLoaded', init);
 window.addEventListener('beforeunload', () => { saveAppState(); autoSave(); });
 
+// (Exports)
 window.toggleLayerVisibility = (id) => layerManager.toggleLayerVisibility(id);
 window.editLayerStyle = editLayerStyle;
 window.removeLayer = (id) => { if (confirm('هل تريد حذف هذه الطبقة؟')) layerManager.removeLayer(id); };
@@ -2763,6 +2791,18 @@ window.toggleAttributeEdit = toggleAttributeEdit;
 window.saveAttributes = saveAttributes;
 window.exportLogs = exportLogs;
 window.clearAutoSave = clearAutoSave;
+
+// ✅ الجديد
+window.addAttributeFieldPrompt = addAttributeFieldPrompt;
+window.addLinkFieldPrompt = addLinkFieldPrompt;
+window.deleteAttributeField = deleteAttributeField;
+window.renameAttributeField = renameAttributeField;
+window.openFieldLink = openFieldLink;
+window.openLinkValue = openLinkValue;
+window.quickAddUrlIfMissing = quickAddUrlIfMissing;
+
+// (Placeholder to prevent error from toolbar button)
+window.toggleTool = (t)=>{ state.activeTool = t; };
 </script>
 
 </body>
